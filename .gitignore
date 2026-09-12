@@ -7,3 +7,7 @@
 # transient test artifacts
 tests/config.*backup.json
 tests/*fired.txt
+
+# Raw screen recordings: may contain whatever was on the desktop.
+docs/frames/
+
