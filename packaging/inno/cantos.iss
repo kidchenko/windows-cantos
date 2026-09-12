@@ -5,7 +5,7 @@
 #define AppName    "Cantos"
 ; The release workflow passes /DAppVersion=x.y.z; this is the local default.
 #ifndef AppVersion
-  #define AppVersion "0.0.1"
+  #define AppVersion "0.0.2"
 #endif
 #define AppPublisher "kidchenko"
 #define AppURL     "https://github.com/kidchenko/windows-cantos"
@@ -17,7 +17,7 @@
 AppId={{7B1F4C2E-9A3D-4E58-B6C1-2F8A5D0E7341}
 AppName={#AppName}
 AppVersion={#AppVersion}
-; Without this Add/Remove Programs reads "Cantos version 0.0.1".
+; Without this Add/Remove Programs reads "Cantos version 0.0.2".
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
@@ -84,6 +84,25 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/f /im {#AppExe}"; \
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
+  begin
     RegDeleteValue(HKEY_CURRENT_USER,
       'Software\Microsoft\Windows\CurrentVersion\Run', 'Cantos');
+
+    // The WebView2 profile, which the app puts under LOCALAPPDATA because it
+    // cannot write beside the executable in Program Files (see ui/mod.rs).
+    // The installer never created it, so nothing removes it automatically,
+    // and it is several megabytes of Chromium cache.
+    //
+    // Settings under %APPDATA%\Cantos are left alone on purpose: reinstalling
+    // should bring your corners back.
+    DelTree(ExpandConstant('{localappdata}\Cantos\WebView2'), True, True, True);
+    // Only succeeds if nothing else lives there, which is what we want.
+    RemoveDir(ExpandConstant('{localappdata}\Cantos'));
+
+    // Debris from 0.1.x, which tried to create its profile here and failed.
+    // A no-op on any machine that never ran one of those builds, and it is
+    // what stops the install directory being left behind.
+    DelTree(ExpandConstant('{app}\cantos.exe.WebView2'), True, True, True);
+    RemoveDir(ExpandConstant('{app}'));
+  end;
 end;

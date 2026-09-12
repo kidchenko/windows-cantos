@@ -89,7 +89,7 @@ if ($okFile) {
 }
 
 Write-Host '--- uninstall (silent) ---'
-$okGone = $false; $okKeyGone = $false; $okRunGone = $false
+$okGone = $false; $okKeyGone = $false; $okRunGone = $false; $okProfileGone = $false
 if ($okUninst) {
   # Inno records this quoted; Start-Process wants it unquoted.
   $u = $key.UninstallString.Trim('"')
@@ -99,9 +99,15 @@ if ($okUninst) {
   $okGone    = -not (Test-Path $installed)
   $okKeyGone = $null -eq (UninstallKey)
   $okRunGone = -not (Get-ItemProperty -Path $runKey -Name 'Cantos' -ErrorAction SilentlyContinue)
+  # The WebView2 profile lives under LOCALAPPDATA because the app cannot write
+  # beside its exe in Program Files. The installer never creates it, so nothing
+  # cleans it up unless [Code] does -- several MB of Chromium cache was being
+  # left behind on every uninstall.
+  $okProfileGone = -not (Test-Path (Join-Path $env:LOCALAPPDATA 'Cantos'))
   Write-Host ("  binary removed:        {0}" -f $okGone)
   Write-Host ("  uninstall key removed: {0}" -f $okKeyGone)
   Write-Host ("  HKCU Run entry clear:  {0}" -f $okRunGone)
+  Write-Host ("  WebView2 profile gone: {0}" -f $okProfileGone)
 }
 
 # Settings are intentionally preserved across uninstall.
@@ -109,8 +115,8 @@ $cfg = Join-Path $env:APPDATA 'Cantos\config.json'
 Write-Host ("  config preserved:      {0} (by design)" -f (Test-Path $cfg))
 
 Write-Host ''
-$all = $okExit -and $okKey -and $okFile -and $okName -and $okLnk -and $okRun -and $okGone -and $okKeyGone -and $okRunGone
+$all = $okExit -and $okKey -and $okFile -and $okName -and $okLnk -and $okRun -and $okGone -and $okKeyGone -and $okRunGone -and $okProfileGone
 if ($all) { Write-Host 'RESULT: PASS - install, run, and uninstall all clean'; exit 0 }
-Write-Host ("RESULT: FAIL  exit={0} key={1} file={2} name={3} lnk={4} run={5} removed={6} keyGone={7} runGone={8}" `
-  -f $okExit, $okKey, $okFile, $okName, $okLnk, $okRun, $okGone, $okKeyGone, $okRunGone)
+Write-Host ("RESULT: FAIL  exit={0} key={1} file={2} name={3} lnk={4} run={5} removed={6} keyGone={7} runGone={8} profileGone={9}" `
+  -f $okExit, $okKey, $okFile, $okName, $okLnk, $okRun, $okGone, $okKeyGone, $okRunGone, $okProfileGone)
 exit 1

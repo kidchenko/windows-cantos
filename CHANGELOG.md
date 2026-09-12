@@ -10,6 +10,18 @@ Releases are tagged `vX.Y.Z`, which is what triggers the release workflow.
 
 Nothing yet.
 
+## [0.0.2] — 2026-09-12
+
+### Fixed
+
+- Uninstalling left the WebView2 profile behind in
+  `%LOCALAPPDATA%\Cantos`, several megabytes of Chromium cache that nothing
+  ever removed. The installer never created that folder, so Inno did not know
+  to clean it up. It now does, along with the install directory itself.
+
+  Settings in `%APPDATA%\Cantos` are still kept on purpose, so reinstalling
+  brings your corners back.
+
 ## [0.0.1] — 2026-09-12
 
 First release. Everything below is new, so this entry describes the product
@@ -79,5 +91,6 @@ rather than listing changes against a version nobody has.
   names the cause when it happens. See the README for the workarounds.
 - x64 only. Windows 10 or later.
 
-[Unreleased]: https://github.com/kidchenko/windows-cantos/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/kidchenko/windows-cantos/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/kidchenko/windows-cantos/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/kidchenko/windows-cantos/releases/tag/v0.0.1
