@@ -1,0 +1,54 @@
+name: pages
+
+on:
+  push:
+    branches: [main]
+    # The site is static, so only rebuild when the site itself changes.
+    # Editing Rust or packaging should not redeploy a page that did not move.
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time. Queued rather than cancelled, so a run that is already
+# uploading finishes rather than leaving the site half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # No build step: docs/ is hand-written HTML with no dependencies. This
+      # only checks the page is intact before it goes live, because a
+      # mistyped filename is otherwise invisible until someone loads the site.
+      - name: Check the site is complete
+        run: |
+          test -f docs/index.html || { echo "docs/index.html is missing"; exit 1; }
+          missing=0
+          # Every local src="..." the page references must actually exist.
+          for ref in $(grep -oP '(?<=src=")[^"h][^"]*' docs/index.html | sort -u); do
+            if [ ! -f "docs/$ref" ]; then echo "missing asset: docs/$ref"; missing=1; fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "index.html + $(find docs -type f | wc -l) files, all references resolve"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
