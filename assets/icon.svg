@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256"
+     role="img" aria-label="Cantos">
+  <title>Cantos</title>
+  <!--
+    Source of truth for the app icon: a dark rounded tile with one corner lit
+    up, which is the whole idea of the app in one shape.
+
+    The quarter-disc radius (40) and the gradient radius are deliberately the
+    same, so the colour sweep ends exactly where the lit corner does.
+
+    Raster copies are generated from this file; see assets/README.md.
+  -->
+  <defs>
+    <radialGradient id="corner-sweep" cx="0" cy="0" r="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8A8AFE"/>
+      <stop offset="1" stop-color="#17D7E9"/>
+    </radialGradient>
+    <clipPath id="rounded-tile">
+      <rect width="64" height="64" rx="15"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#rounded-tile)">
+    <rect width="64" height="64" fill="#12141F"/>
+    <path d="M0 0h40A40 40 0 0 1 0 40Z" fill="url(#corner-sweep)"/>
+  </g>
+</svg>

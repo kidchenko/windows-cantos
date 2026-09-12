@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: kidchenko.Cantos
+PackageVersion: 0.0.1
+PackageLocale: en-US
+Publisher: kidchenko
+PublisherUrl: https://github.com/kidchenko
+PublisherSupportUrl: https://github.com/kidchenko/windows-cantos/issues
+PackageName: Cantos
+PackageUrl: https://github.com/kidchenko/windows-cantos
+License: MIT
+LicenseUrl: https://github.com/kidchenko/windows-cantos/blob/main/LICENSE
+Copyright: Copyright (c) 2026 kidchenko
+ShortDescription: macOS-style hot corners for Windows
+Description: |-
+  Throw the cursor into a corner of the screen and something happens: Task View,
+  show desktop, lock, screensaver, display off, or any command you like.
+
+  A single 0.72 MB executable with no runtime dependencies, sitting in the tray
+  using about 2 MB and effectively no CPU. Corners are gated behind a
+  configurable dwell delay so overshooting toward a Close button does not
+  trigger them, and they are suppressed automatically over fullscreen games
+  and video.
+Moniker: cantos
+Tags:
+  - hot-corners
+  - macos
+  - productivity
+  - tray
+  - utilities
+ReleaseNotesUrl: https://github.com/kidchenko/windows-cantos/releases
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

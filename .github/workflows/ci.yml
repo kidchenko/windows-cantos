@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --release --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Report binary size
+        shell: pwsh
+        run: |
+          $f = Get-Item target\release\cantos.exe
+          "binary: {0:N0} bytes ({1:N2} MB)" -f $f.Length, ($f.Length / 1MB)
+          # Size is a stated goal for this project, so regressions should be
+          # visible in CI rather than discovered at release time.
+          if ($f.Length -gt 3MB) { throw "binary exceeded the 3 MB budget" }

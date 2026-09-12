@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.pdb
+/dist
+/packaging/choco/*.nupkg
+
+# transient test artifacts
+tests/config.*backup.json
+tests/*fired.txt

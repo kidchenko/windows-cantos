@@ -1,0 +1,229 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Resolve version
+        id: v
+        shell: pwsh
+        run: |
+          # Read [package].version specifically. A bare '^version = "..."' also
+          # matches the one under [dependencies.windows], and only picks the
+          # right line because [package] happens to come first today.
+          function Get-PackageVersion {
+            $inPackage = $false
+            foreach ($line in Get-Content Cargo.toml) {
+              if ($line -match '^\s*\[(.+)\]\s*$') { $inPackage = ($Matches[1] -eq 'package'); continue }
+              if ($inPackage -and $line -match '^\s*version\s*=\s*"([^"]+)"') { return $Matches[1] }
+            }
+            return $null
+          }
+          $manifest = Get-PackageVersion
+          if (-not $manifest) { throw "could not read [package].version from Cargo.toml" }
+
+          # A tag release takes its version from the tag. Anything else is a
+          # manual run from a branch, where github.ref_name is the BRANCH name
+          # -- stripping a leading 'v' from "main" leaves "main", which used to
+          # sail straight through and produce Cantos-Setup-main.exe.
+          if ("${{ github.ref }}" -match '^refs/tags/v(.+)$') {
+            $v = $Matches[1]
+            "version from tag: $v"
+            # The binary reports CARGO_PKG_VERSION in its log and settings
+            # window, so a tag that disagrees with the manifest ships an
+            # installer whose name contradicts the app inside it.
+            if ($v -ne $manifest) {
+              throw "tag v$v does not match Cargo.toml [package].version = $manifest. Bump the manifest, commit, then re-tag."
+            }
+            "is_release=true" >> $env:GITHUB_OUTPUT
+          } else {
+            $v = $manifest
+            "manual run on '${{ github.ref_name }}' - dry run at version $v from Cargo.toml"
+            "is_release=false" >> $env:GITHUB_OUTPUT
+          }
+
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.\-]+)?$') {
+            throw "resolved version '$v' is not a semantic version"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      # The release body comes from CHANGELOG.md, not from commit subjects.
+      # GitHub's generated notes are appended to it, so the release reads as
+      # "here is what changed, for a human" followed by the commit list.
+      - name: Extract release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $v = "${{ steps.v.outputs.version }}"
+          $body = @()
+          $inSection = $false
+          foreach ($line in Get-Content CHANGELOG.md) {
+            if ($line -match '^##\s+\[(.+?)\]') {
+              if ($inSection) { break }        # reached the next version, stop
+              $inSection = ($Matches[1] -eq $v)
+              continue
+            }
+            # The last section runs to EOF, which would otherwise swallow the
+            # link-reference block at the bottom of the file. Those render as
+            # nothing on the release page, so they are invisible noise.
+            if ($inSection -and $line -match '^\[[^\]]+\]:\s*\S+') { break }
+            if ($inSection) { $body += $line }
+          }
+          # Trim blank lines off both ends.
+          while ($body.Count -and $body[0].Trim() -eq '')  { $body = $body[1..($body.Count-1)] }
+          while ($body.Count -and $body[-1].Trim() -eq '') { $body = $body[0..($body.Count-2)] }
+
+          if (-not $body.Count) {
+            # Not fatal: a release with thin notes still beats a failed tag.
+            # Loud enough to notice, though -- it means CHANGELOG.md was not
+            # updated before tagging.
+            "::warning::No '## [$v]' section in CHANGELOG.md; falling back to generated notes only."
+            "has_notes=false" >> $env:GITHUB_OUTPUT
+            New-Item -ItemType File -Force release-notes.md | Out-Null
+          } else {
+            "has_notes=true" >> $env:GITHUB_OUTPUT
+            $body -join "`n" | Set-Content release-notes.md -Encoding utf8
+            "extracted $($body.Count) lines for $v"
+          }
+
+      - name: Build
+        run: cargo build --release
+
+      # Signing goes here once a certificate exists. Without it Windows
+      # SmartScreen warns on first run for every user until the binary
+      # accumulates reputation.
+      # - name: Sign
+      #   run: signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 target\release\cantos.exe
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc /DAppVersion=${{ steps.v.outputs.version }} packaging\inno\cantos.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+
+      - name: Stage artifacts and checksums
+        id: hash
+        shell: pwsh
+        run: |
+          $v = "${{ steps.v.outputs.version }}"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\cantos.exe "dist\cantos-$v-x64.exe" -Force
+
+          $setup = "dist\Cantos-Setup-$v.exe"
+          $sha = (Get-FileHash $setup -Algorithm SHA256).Hash
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+          "installer sha256: $sha"
+
+          # Package manifests carry the checksum of the artifact this run
+          # produced, so they can never drift from what is published.
+          #
+          # The version they currently hold is discovered, not hard-coded.
+          # This was a literal "0\.1\.0", which quietly stopped matching the
+          # moment the project was versioned anything else.
+          $stale = ([regex]'\d+\.\d+\.\d+').Match(
+            (Get-Content packaging\choco\tools\chocolateyinstall.ps1 -Raw)).Value
+          if (-not $stale) { throw "no version literal found in chocolateyinstall.ps1" }
+          $stalePattern = [regex]::Escape($stale)
+          "rewriting packaging manifests: $stale -> $v"
+
+          (Get-Content packaging\choco\tools\chocolateyinstall.ps1) `
+            -replace 'REPLACE_WITH_SHA256', $sha -replace $stalePattern, $v |
+            Set-Content packaging\choco\tools\chocolateyinstall.ps1
+          # ReleaseDate too -- winget rejects a manifest whose date is in the
+          # future, and a hard-coded one silently goes stale.
+          $today = (Get-Date -Format 'yyyy-MM-dd')
+          Get-ChildItem packaging\winget\*.yaml | ForEach-Object {
+            (Get-Content $_) -replace 'REPLACE_WITH_SHA256', $sha -replace $stalePattern, $v `
+              -replace '^(ReleaseDate:\s*).*$', "`${1}$today" |
+              Set-Content $_
+          }
+
+          Get-ChildItem dist | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name
+          } | Set-Content dist\SHA256SUMS.txt
+
+      - name: Pack Chocolatey package
+        shell: pwsh
+        run: |
+          choco pack packaging\choco\cantos.nuspec --version ${{ steps.v.outputs.version }} --outputdirectory dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests
+          path: packaging/winget/*.yaml
+
+      - name: Publish release
+        if: steps.v.outputs.is_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Cantos-Setup-*.exe
+            dist/cantos-*-x64.exe
+            dist/*.nupkg
+            dist/SHA256SUMS.txt
+          # Hand-written highlights first; GitHub appends the commit list.
+          body_path: release-notes.md
+          generate_release_notes: true
+
+      # A manual run builds and packages everything but publishes nothing, so
+      # the whole pipeline can be rehearsed before committing to a tag. The
+      # results are downloadable from the run's Artifacts section.
+      - name: Upload dry-run artifacts
+        if: steps.v.outputs.is_release != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-${{ steps.v.outputs.version }}
+          path: dist/*
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          $v = "${{ steps.v.outputs.version }}"
+          if ("${{ steps.v.outputs.is_release }}" -eq 'true') {
+            "### Released ``v$v``" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            "### Dry run at ``$v`` - nothing published" >> $env:GITHUB_STEP_SUMMARY
+            "Tag with ``git tag v$v; git push origin v$v`` to publish for real." >> $env:GITHUB_STEP_SUMMARY
+          }
+          "" >> $env:GITHUB_STEP_SUMMARY
+          "| file | bytes |" >> $env:GITHUB_STEP_SUMMARY
+          "|---|---|" >> $env:GITHUB_STEP_SUMMARY
+          Get-ChildItem dist | ForEach-Object {
+            "| ``$($_.Name)`` | $('{0:N0}' -f $_.Length) |" >> $env:GITHUB_STEP_SUMMARY
+          }
+
+          # Show the notes the release would carry, so a dry run rehearses
+          # this too rather than leaving it to be discovered after tagging.
+          "" >> $env:GITHUB_STEP_SUMMARY
+          if ("${{ steps.notes.outputs.has_notes }}" -eq 'true') {
+            "<details><summary>Release notes from CHANGELOG.md</summary>" >> $env:GITHUB_STEP_SUMMARY
+            "" >> $env:GITHUB_STEP_SUMMARY
+            Get-Content release-notes.md >> $env:GITHUB_STEP_SUMMARY
+            "" >> $env:GITHUB_STEP_SUMMARY
+            "</details>" >> $env:GITHUB_STEP_SUMMARY
+            "" >> $env:GITHUB_STEP_SUMMARY
+            "GitHub's generated commit list is appended below these on the release itself." >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            "> **No CHANGELOG.md section for ``$v``.** The release would carry generated notes only." >> $env:GITHUB_STEP_SUMMARY
+          }
